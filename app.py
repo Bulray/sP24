@@ -36,15 +36,15 @@ def build_query(it, cmd, value):
 @app.route("/perform_query")
 def perform_query():
     try:
-        cmd1 = request.args.get("cmd1")
-        cmd2 = request.args.get("cmd2")
-        value1 = request.args.get("value1")
-        value2 = request.args.get("value2")
-        file_name = request.args.get('file_name')
+        cmd1 = request.form["cmd1"]
+        cmd2 = request.form["cmd2"]
+        value1 = request.form["value1"]
+        value2 = request.form["value2"]
+        file_name = request.form["file_name"]
 
         file_path = os.path.join(DATA_DIR, file_name)
         if not os.path.exists(file_path):
-            return BadRequest(description=f"{file_name} was not found")
+            raise  BadRequest(description=f"{file_name} was not found")
 
         with open(file_path) as fd:
             res = build_query(fd, cmd1, value1)
