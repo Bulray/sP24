@@ -2,7 +2,9 @@ import os
 import re
 import mypy
 import argparse
-from flask import Flask, request
+from typing import Iterator
+
+from flask import Flask, request, Response
 from werkzeug.exceptions import BadRequest
 import requests
 
@@ -12,29 +14,43 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
 
-def build_query(it, cmd, value):
-    res = map(lambda v: v.strip(), it)
+def limits(it: Iterator, limit: int) -> Iterator:
+    i = 0
+    for item in it:
+        if i < limit:
+            yield item
+        else:
+            break
+        i += 1
+
+
+def app_commandd(it: Iterator, cmd: str, value: str) -> Iterator:
     if cmd == "filter":
-        res = filter(lambda v, txt=value: txt in v, res)
+        return filter(lambda v: value in v, it)
     if cmd == "map":
-        arg = int(value)
-        res = map(lambda v, idx=arg: v.split(" ")[idx], res)
+        idx = int(value)
+        return map(lambda v: v.split(" ")[idx], it)
     if cmd == "unique":
-        res = set(res)
+        return iter(set(it))
     if cmd == "sort":
         reverse = value == "desc"
-        res = sorted(res, reverse=reverse)
+        return iter(sorted(it, reverse=reverse))
     if cmd == "limit":
         arg = int(value)
-        res = list(res)[:arg]
-    if cmd == 'regex':
+        return limits(it, arg)
+    if cmd == "regex":
         regex = re.compile(value)
-        return filter(lambda v: regex.search(v), res)
-    return res
+        return filter(lambda v: regex.search(v), it)
+    return it
+
+def build_query(it: Iterator, cmd1: str, value1: str, cmd2: str, value2: str) -> Iterator:
+    res: Iterator = map(lambda v: v.strip(), it)
+    res = app_commandd(res, cmd1, value1)
+    return app_commandd(res, cmd2, value2)
 
 
-@app.route("/perform_query")
-def perform_query():
+@app.post("/perform_query")
+def perform_query() -> Response:
     try:
         cmd1 = request.form["cmd1"]
         cmd2 = request.form["cmd2"]
@@ -42,40 +58,17 @@ def perform_query():
         value2 = request.form["value2"]
         file_name = request.form["file_name"]
 
-        file_path = os.path.join(DATA_DIR, file_name)
-        if not os.path.exists(file_path):
-            raise  BadRequest(description=f"{file_name} was not found")
+    except KeyError:
+        raise BadRequest
 
-        with open(file_path) as fd:
-            res = build_query(fd, cmd1, value1)
-            res = build_query(res, cmd2, value2)
-            content = '\n'.join(res)
-            print(content)
-        return app.response_class(content, content_type="text/plain")
-    except:
-        try:
-            file_name = 'apache_logs.txt'
-            stat = request.args['stat']
-            item_list = stat.split('|')
-            cmds = [{item.split(':')[0]: item.split(':')[1]} if item.__contains__(':') else {item: item}
-                    for item in item_list]
+    file_path = os.path.join(DATA_DIR, file_name)
+    if not os.path.exists(file_path):
+        raise BadRequest(description=f"{file_name} was not found")
 
-            for cmd in cmds:
-                if cmd.keys().__contains__('file_name'):
-                    file_name = cmd['file_name']
-
-            file_path = os.path.join(DATA_DIR, file_name)
-
-            with open(file_path) as fd:
-                content = fd.readlines()
-                for cmd in cmds:
-                    content = build_query(content, list(cmd.keys())[0], list(cmd.values())[0])
-
-                sort_content = '\n'.join(content)
-
-            return app.response_class(sort_content, content_type="text/plain")
-        except KeyError:
-            raise BadRequest
+    with open(file_path) as fd:
+        res = build_query(fd, cmd1, value1, cmd2, value2)
+        content = '\n'.join(res)
+    return app.response_class(content, content_type="text/plain")
 
 
 if __name__ == '__main__':
